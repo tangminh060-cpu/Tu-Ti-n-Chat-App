@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Character, ChatSession } from '../types';
 // Fix: Import `EyeIcon` to resolve the "Cannot find name 'EyeIcon'" error.
@@ -11,18 +12,14 @@ interface ChatListProps {
   onNavigateToProfile: () => void;
   onNavigateToExplore: () => void;
   onNavigateToMap: () => void;
-  onSwitchAccount: () => void;
 }
 
-const ChatListHeader: React.FC<{ onSwitchAccount: () => void }> = ({ onSwitchAccount }) => (
+const ChatListHeader: React.FC = () => (
     <header className="p-4 flex items-center justify-between sticky top-0 bg-black z-10">
         <h1 className="text-2xl font-bold">Trò chuyện</h1>
         <div className="flex items-center space-x-2">
             <button className="p-2 rounded-full hover:bg-gray-800">
                 <SearchIcon className="w-6 h-6" />
-            </button>
-            <button onClick={onSwitchAccount} className="p-2 rounded-full hover:bg-gray-800" title="Chuyển đổi tài khoản / API Key">
-                <UserIcon className="w-6 h-6" />
             </button>
         </div>
     </header>
@@ -96,13 +93,13 @@ const MainNav: React.FC<{onCreate: () => void, onProfile: () => void, onExplore:
 );
 
 
-const ChatList: React.FC<ChatListProps> = ({ characters, sessions, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap, onSwitchAccount }) => {
+const ChatList: React.FC<ChatListProps> = ({ characters, sessions, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap }) => {
   
   const sortedSessions = [...sessions].sort((a,b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
   
   return (
     <div className="flex flex-col h-full bg-black">
-        <ChatListHeader onSwitchAccount={onSwitchAccount} />
+        <ChatListHeader />
         <main className="flex-grow p-2 overflow-y-auto">
             {sortedSessions.length > 0 ? (
                  <ul>

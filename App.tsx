@@ -497,29 +497,6 @@ const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({ isOpen, onClo
     );
 };
 
-// --- API Key Selection Screen ---
-const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void }> = ({ onSelectKey }) => (
-    <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-center p-4">
-        <h1 className="text-3xl font-bold mb-4">Chào mừng đến với Character Chat AI</h1>
-        <p className="text-gray-400 mb-8 max-w-md">
-            Để bắt đầu, bạn cần chọn một API key từ Google AI Studio. Ứng dụng này sử dụng các mô hình Gemini mạnh mẽ để mang các nhân vật đến với cuộc sống.
-        </p>
-        <button
-            onClick={onSelectKey}
-            className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black rounded-md font-semibold text-lg"
-        >
-            Chọn API Key
-        </button>
-        <p className="text-xs text-gray-500 mt-4">
-            Bằng cách tiếp tục, bạn đồng ý với các điều khoản thanh toán.
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-300 ml-1">
-                Tìm hiểu thêm về thanh toán.
-            </a>
-        </p>
-    </div>
-);
-
-
 // --- Main App Component ---
 const App: React.FC = () => {
   const [view, setView] = useState<'chatList' | 'characterSelection' | 'chat' | 'personaManagement' | 'explore' | 'map' | 'sessionList'>('chatList');
@@ -537,7 +514,6 @@ const App: React.FC = () => {
   const [personaProfiles, setPersonaProfiles] = useState<Record<string, PersonaProfile>>({});
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-  const [apiKeyReady, setApiKeyReady] = useState(false); // New state for API key
 
   // Modals State
   const [isPersonaEditModalOpen, setIsPersonaEditModalOpen] = useState(false);
@@ -554,34 +530,6 @@ const App: React.FC = () => {
   const [relationshipCharacter, setRelationshipCharacter] = useState<Character | null>(null);
 
   const [isPersonaProfileModalOpen, setIsPersonaProfileModalOpen] = useState(false);
-
-  // Check for API key on mount
-  useEffect(() => {
-    const checkKey = async () => {
-        if ((window as any).aistudio && typeof (window as any).aistudio.hasSelectedApiKey === 'function') {
-            if (await (window as any).aistudio.hasSelectedApiKey()) {
-                setApiKeyReady(true);
-            }
-        } else {
-            setTimeout(checkKey, 100);
-        }
-    };
-    checkKey();
-  }, []);
-  
-  const handleSelectApiKey = async () => {
-    try {
-        await (window as any).aistudio.openSelectKey();
-        setApiKeyReady(true);
-    } catch (e) {
-        console.error("Error opening API key selection:", e);
-    }
-  };
-
-  const handleApiKeyError = () => {
-    console.warn("API Key error detected. Prompting user to re-select.");
-    setApiKeyReady(false);
-  };
 
   // Load all data from localStorage on initial mount
   useEffect(() => {
@@ -830,8 +778,7 @@ const App: React.FC = () => {
     } catch (error) {
         console.error("Error generating activity name:", error);
         if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-            handleApiKeyError();
-            return "Lỗi xác thực, vui lòng chọn lại API key.";
+            return "Lỗi xác thực, vui lòng kiểm tra API key trong biến môi trường.";
         }
         return "Gợi ý thất bại";
     }
@@ -861,7 +808,6 @@ const App: React.FC = () => {
           onAffectionChange={handleAffectionChange}
           onOpenPersonaProfile={() => setIsPersonaProfileModalOpen(true)}
           onModelChange={handleCharacterModelChange}
-          onApiKeyError={handleApiKeyError}
         />;
       case 'sessionList':
         if (!selectedCharacter) {
@@ -920,14 +866,9 @@ const App: React.FC = () => {
           onNavigateToProfile={() => setView('personaManagement')}
           onNavigateToExplore={handleNavigateToExplore}
           onNavigateToMap={handleNavigateToMap}
-          onSwitchAccount={handleSelectApiKey}
         />;
     }
   };
-  
-  if (!apiKeyReady) {
-    return <ApiKeySelectionScreen onSelectKey={handleSelectApiKey} />;
-  }
   
   if (!isDataLoaded) {
     return (

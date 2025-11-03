@@ -19,7 +19,6 @@ interface ChatViewProps {
   onAffectionChange: (characterId: string, change: number) => void;
   onOpenPersonaProfile: () => void;
   onModelChange: (characterId: string, newModel: string) => void;
-  onApiKeyError: () => void;
 }
 
 interface HeartButtonProps {
@@ -323,7 +322,7 @@ const ActionMenu: React.FC<{
 };
 
 
-const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, session, onSaveMessages, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange, onApiKeyError }) => {
+const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, session, onSaveMessages, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange }) => {
   const [messages, setMessages] = useState<Message[]>(session.messages);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -440,9 +439,8 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
 
     } catch (error) {
         console.error("Error in Gemini Stream:", error);
-         if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-            onApiKeyError();
-            const errorMessage = "Lỗi xác thực API Key. Vui lòng quay lại và chọn lại API key của bạn.";
+         if (error instanceof Error && (error.message.includes("API key not valid") || error.message.includes("Requested entity was not found"))) {
+            const errorMessage = "Lỗi xác thực API Key. Vui lòng kiểm tra lại API key của bạn trong cài đặt môi trường (environment variable).";
             setMessages(prev => prev.map(m => m.id === botMessageId ? {...m, text: errorMessage} : m));
         } else {
             const errorMessage = "Xin lỗi, đã có lỗi xảy ra khi giao tiếp với AI. Vui lòng thử lại.";
