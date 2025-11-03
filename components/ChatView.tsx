@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Character, UserPersona, Message, PersonaProfile, ChatSession } from '../types';
-import { GoogleGenAI, Chat } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { BackArrowIcon, SendIcon, UsersIcon, HeartIcon, GiftIcon, CloseIcon, TrashIcon, CalendarDaysIcon, UserIcon, RefreshIcon, ClipboardIcon, CheckIcon, SparklesIcon, CpuChipIcon, PlusIcon } from './icons';
 import { createSystemPrompt } from '../services/geminiService';
 import EditableField from './EditableField';
@@ -340,61 +340,65 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
   
   useEffect(() => {
     onSaveMessages(messages);
-  }, [messages, onSaveMessages]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages.length]);
   
-  const getNewChatSession = useCallback((messageHistory: Message[]) => {
-    if (!process.env.API_KEY) {
-        throw new Error("API Key not set.");
-    }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const systemInstruction = createSystemPrompt(character, userPersona, personaProfile);
-
-    const cleanHistory = messageHistory.filter(m => m.id !== 'error-key' && !m.id.startsWith('bot-greeting-'));
-
-    const processedHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
-
-    for (const msg of cleanHistory) {
-        let role: 'user' | 'model';
-        let text = msg.text;
-
-        if (msg.sender === 'user') {
-            role = 'user';
-        } else if (msg.sender === 'event') {
-            role = 'user';
-            text = `[BỐI CẢNH]\n${msg.text}\n[KẾT THÚC BỐI CẢNH]`;
-        } else { // 'bot'
-            role = 'model';
-        }
-
-        const lastEntry = processedHistory.length > 0 ? processedHistory[processedHistory.length - 1] : null;
-
-        if (lastEntry && lastEntry.role === 'user' && role === 'user') {
-            lastEntry.parts[0].text += `\n\n${text}`;
-        } else {
-            processedHistory.push({ role, parts: [{ text }] });
-        }
-    }
-
-    const modelToUse = character.model === 'default' ? 'gemini-2.5-flash' : (character.model || 'gemini-2.5-flash');
-    return ai.chats.create({
-        model: modelToUse,
-        config: { systemInstruction },
-        history: processedHistory
-    });
-  }, [character, userPersona, personaProfile]);
-
   const runGeminiStream = async (prompt: string, historyContext: Message[]) => {
     setIsLoading(true);
     const botMessageId = `bot-stream-${Date.now()}`;
     setMessages(prev => [...prev, { id: botMessageId, text: "", sender: 'bot', timestamp: Date.now() }]);
 
     try {
-        const chatSession = getNewChatSession(historyContext);
-        const stream = await chatSession.sendMessageStream({ message: prompt });
+        if (!process.env.API_KEY) {
+            throw new Error("API Key not set.");
+        }
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const systemInstruction = createSystemPrompt(character, userPersona, personaProfile);
+
+        const cleanHistory = historyContext.filter(m => m.id !== 'error-key' && !m.id.startsWith('bot-greeting-'));
+
+        const processedHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
+        for (const msg of cleanHistory) {
+            let role: 'user' | 'model';
+            let text = msg.text;
+
+            if (msg.sender === 'user') {
+                role = 'user';
+            } else if (msg.sender === 'event') {
+                role = 'user';
+                text = `[BỐI CẢNH]\n${msg.text}\n[KẾT THÚC BỐI CẢNH]`;
+            } else { // 'bot'
+                role = 'model';
+            }
+
+            const lastEntry = processedHistory.length > 0 ? processedHistory[processedHistory.length - 1] : null;
+
+            if (lastEntry && lastEntry.role === 'user' && role === 'user') {
+                lastEntry.parts[0].text += `\n\n${text}`;
+            } else {
+                processedHistory.push({ role, parts: [{ text }] });
+            }
+        }
+        
+        const modelToUse = character.model === 'default' ? 'gemini-2.5-flash' : (character.model || 'gemini-2.5-flash');
+
+        const lastHistoryEntry = processedHistory.length > 0 ? processedHistory[processedHistory.length - 1] : null;
+
+        if (lastHistoryEntry && lastHistoryEntry.role === 'user') {
+            lastHistoryEntry.parts[0].text += `\n\n${prompt}`;
+        } else {
+            processedHistory.push({ role: 'user' as const, parts: [{ text: prompt }] });
+        }
+        
+        const stream = await ai.models.generateContentStream({
+            model: modelToUse,
+            contents: processedHistory,
+            config: { systemInstruction }
+        });
         
         let botResponseText = "";
         for await (const chunk of stream) {
