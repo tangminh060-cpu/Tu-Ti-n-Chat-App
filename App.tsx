@@ -603,7 +603,7 @@ const App: React.FC = () => {
       
       if (parsedPersonas.length > 0) {
         const savedActivePersonaId = localStorage.getItem('activePersonaId');
-        const active = parsedPersonas.find(p => p.id === savedActivePersonaId) || parsedPersonas[0];
+        const active = parsedPersonas.find((p: UserPersona) => p.id === savedActivePersonaId) || parsedPersonas[0];
         setActivePersona(active);
       } else {
         setActivePersona(null);
@@ -765,14 +765,14 @@ const App: React.FC = () => {
   };
   
   const handleSavePersona = (personaToSave: UserPersona) => {
-    const isCreating = !personas.some(p => p.id === personaToSave.id);
+    const isCreating = !personas.some((p: UserPersona) => p.id === personaToSave.id);
      if (isCreating) {
       setPersonas(prev => [personaToSave, ...prev]);
       if (!activePersona) {
           setActivePersona(personaToSave);
       }
     } else {
-      setPersonas(prev => prev.map(p => p.id === personaToSave.id ? personaToSave : p));
+      setPersonas(prev => prev.map((p: UserPersona) => p.id === personaToSave.id ? personaToSave : p));
       if(activePersona?.id === personaToSave.id) {
         setActivePersona(personaToSave);
       }
@@ -826,7 +826,7 @@ const App: React.FC = () => {
     try {
         const modelToUse = character.model === 'default' ? 'gemini-2.5-flash' : (character.model || 'gemini-2.5-flash');
         const response = await ai.models.generateContent({ model: modelToUse, contents: prompt });
-        return response.text.trim();
+        return response.text?.trim() || "Gợi ý thất bại";
     } catch (error) {
         console.error("Error generating activity name:", error);
         if (error instanceof Error && error.message.includes("Requested entity was not found")) {
