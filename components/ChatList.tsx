@@ -1,9 +1,11 @@
 import React from 'react';
-import { Character } from '../types';
+import { Character, ChatSession } from '../types';
+// Fix: Import `EyeIcon` to resolve the "Cannot find name 'EyeIcon'" error.
 import { SearchIcon, UserIcon, MapIcon, ChatBubbleIcon, PlusIcon, EyeIcon } from './icons';
 
 interface ChatListProps {
   characters: Character[];
+  sessions: ChatSession[];
   onSelectCharacter: (character: Character) => void;
   onNavigateToCreate: () => void;
   onNavigateToProfile: () => void;
@@ -26,18 +28,48 @@ const ChatListHeader: React.FC<{ onSwitchAccount: () => void }> = ({ onSwitchAcc
     </header>
 );
 
-const ChatListItem: React.FC<{character: Character, onSelect: () => void}> = ({ character, onSelect }) => (
-    <li 
-        onClick={onSelect}
-        className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
-    >
-        <img src={character.imageUrl} alt={character.name} className="w-14 h-14 rounded-full object-cover"/>
-        <div className="flex-1 overflow-hidden">
-            <h2 className="font-semibold">{character.name}</h2>
-            <p className="text-sm text-gray-400 truncate">{character.biography}</p>
-        </div>
-    </li>
-);
+const ChatListItem: React.FC<{
+    session: ChatSession;
+    character?: Character;
+    onSelect: () => void;
+}> = ({ session, character, onSelect }) => {
+    if (!character) return null;
+
+    const lastMessage = session.messages[session.messages.length - 1];
+    const messagePreview = lastMessage ? `${lastMessage.sender === 'user' ? 'Bạn: ' : ''}${lastMessage.text}` : 'Chưa có tin nhắn.';
+    
+    const timeSince = (date: number) => {
+        const seconds = Math.floor((new Date().getTime() - date) / 1000);
+        let interval = seconds / 31536000;
+        if (interval > 1) return Math.floor(interval) + "y";
+        interval = seconds / 2592000;
+        if (interval > 1) return Math.floor(interval) + "m";
+        interval = seconds / 86400;
+        if (interval > 1) return Math.floor(interval) + "d";
+        interval = seconds / 3600;
+        if (interval > 1) return Math.floor(interval) + "h";
+        interval = seconds / 60;
+        if (interval > 1) return Math.floor(interval) + "m";
+        return Math.floor(seconds) + "s";
+    };
+
+    return (
+        <li 
+            onClick={onSelect}
+            className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
+        >
+            <img src={character.imageUrl} alt={character.name} className="w-14 h-14 rounded-full object-cover"/>
+            <div className="flex-1 overflow-hidden">
+                <div className="flex justify-between items-baseline">
+                    <h2 className="font-semibold truncate">{character.name}</h2>
+                    <span className="text-xs text-gray-500 flex-shrink-0">{timeSince(session.lastMessageTimestamp)}</span>
+                </div>
+                <p className="text-sm text-gray-400 truncate">{messagePreview}</p>
+            </div>
+        </li>
+    );
+};
+
 
 const MainNav: React.FC<{onCreate: () => void, onProfile: () => void, onExplore: () => void, onMap: () => void}> = ({ onCreate, onProfile, onExplore, onMap }) => (
     <nav className="flex justify-around items-center p-2 border-t border-gray-800 bg-black mt-auto">
@@ -64,16 +96,31 @@ const MainNav: React.FC<{onCreate: () => void, onProfile: () => void, onExplore:
 );
 
 
-const ChatList: React.FC<ChatListProps> = ({ characters, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap, onSwitchAccount }) => {
+const ChatList: React.FC<ChatListProps> = ({ characters, sessions, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap, onSwitchAccount }) => {
+  
+  const sortedSessions = [...sessions].sort((a,b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+  
   return (
     <div className="flex flex-col h-full bg-black">
         <ChatListHeader onSwitchAccount={onSwitchAccount} />
         <main className="flex-grow p-2 overflow-y-auto">
-            <ul>
-                {characters.map(char => (
-                    <ChatListItem key={char.id} character={char} onSelect={() => onSelectCharacter(char)} />
-                ))}
-            </ul>
+            {sortedSessions.length > 0 ? (
+                 <ul>
+                    {sortedSessions.map(session => (
+                        <ChatListItem 
+                            key={session.id} 
+                            session={session} 
+                            character={characters.find(c => c.id === session.characterId)}
+                            onSelect={() => onSelectCharacter(characters.find(c => c.id === session.characterId)!)} 
+                        />
+                    ))}
+                </ul>
+            ) : (
+                <div className="text-center text-gray-500 mt-20 px-4">
+                    <p>Chào mừng bạn!</p>
+                    <p className="mt-2">Nhấn nút `+` bên dưới để bắt đầu một cuộc trò chuyện mới.</p>
+                </div>
+            )}
         </main>
         <MainNav onCreate={onNavigateToCreate} onProfile={onNavigateToProfile} onExplore={onNavigateToExplore} onMap={onNavigateToMap} />
     </div>

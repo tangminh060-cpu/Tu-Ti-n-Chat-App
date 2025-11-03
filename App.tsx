@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, PropsWithChildren } from 'react';
 import { GoogleGenAI } from '@google/genai';
-import { Character, UserPersona, RelationshipUnlockable, PersonaProfile, MapData } from './types';
+import { Character, UserPersona, RelationshipUnlockable, PersonaProfile, MapData, ChatSession, Message } from './types';
 import { INITIAL_CHARACTERS, INITIAL_PERSONAS, INITIAL_MAP_DATA } from './constants';
 import ChatList from './components/ChatList';
 import CharacterSelection from './components/CharacterSelection';
@@ -12,6 +12,7 @@ import { CloseIcon, HeartIcon, LockIcon, GiftIcon, MapPinIcon, ThoughtBubbleIcon
 import Explore from './components/Explore';
 import CharacterProfile from './components/CharacterProfile';
 import MapView from './components/MapView';
+import SessionList from './components/SessionList';
 
 
 // --- Helper Function ---
@@ -521,7 +522,7 @@ const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void }> = ({ onSelect
 
 // --- Main App Component ---
 const App: React.FC = () => {
-  const [view, setView] = useState<'chatList' | 'characterSelection' | 'chat' | 'personaManagement' | 'explore' | 'map'>('chatList');
+  const [view, setView] = useState<'chatList' | 'characterSelection' | 'chat' | 'personaManagement' | 'explore' | 'map' | 'sessionList'>('chatList');
   
   // State will be populated by useEffect from localStorage
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -529,6 +530,9 @@ const App: React.FC = () => {
   
   const [personas, setPersonas] = useState<UserPersona[]>([]);
   const [activePersona, setActivePersona] = useState<UserPersona | null>(null);
+
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   
   const [personaProfiles, setPersonaProfiles] = useState<Record<string, PersonaProfile>>({});
   const [mapData, setMapData] = useState<MapData | null>(null);
@@ -554,13 +558,11 @@ const App: React.FC = () => {
   // Check for API key on mount
   useEffect(() => {
     const checkKey = async () => {
-        // The `window.aistudio` object might not be available immediately.
         if ((window as any).aistudio && typeof (window as any).aistudio.hasSelectedApiKey === 'function') {
             if (await (window as any).aistudio.hasSelectedApiKey()) {
                 setApiKeyReady(true);
             }
         } else {
-            // Retry if the object is not ready yet
             setTimeout(checkKey, 100);
         }
     };
@@ -570,7 +572,6 @@ const App: React.FC = () => {
   const handleSelectApiKey = async () => {
     try {
         await (window as any).aistudio.openSelectKey();
-        // Assume success to handle potential race condition where hasSelectedApiKey() might not be updated instantly
         setApiKeyReady(true);
     } catch (e) {
         console.error("Error opening API key selection:", e);
@@ -582,19 +583,19 @@ const App: React.FC = () => {
     setApiKeyReady(false);
   };
 
-
   // Load all data from localStorage on initial mount
   useEffect(() => {
-    // Load Characters
+    let loadedCharacters: Character[];
     try {
       const savedCharacters = localStorage.getItem('characters');
-      setCharacters(savedCharacters ? JSON.parse(savedCharacters) : INITIAL_CHARACTERS);
+      loadedCharacters = savedCharacters ? JSON.parse(savedCharacters) : INITIAL_CHARACTERS;
+      setCharacters(loadedCharacters);
     } catch (error) {
       console.error("Error loading characters from localStorage:", error);
-      setCharacters(INITIAL_CHARACTERS);
+      loadedCharacters = INITIAL_CHARACTERS;
+      setCharacters(loadedCharacters);
     }
     
-    // Load Personas & Active Persona
     try {
       const savedPersonas = localStorage.getItem('personas');
       const parsedPersonas = savedPersonas ? JSON.parse(savedPersonas) : INITIAL_PERSONAS;
@@ -613,7 +614,6 @@ const App: React.FC = () => {
       setActivePersona(INITIAL_PERSONAS[0] || null);
     }
     
-    // Load Persona Profiles
     try {
       const savedProfiles = localStorage.getItem('personaProfiles');
       setPersonaProfiles(savedProfiles ? JSON.parse(savedProfiles) : {});
@@ -622,7 +622,6 @@ const App: React.FC = () => {
       setPersonaProfiles({});
     }
     
-    // Load Map Data
     try {
         const savedMap = localStorage.getItem('mapData');
         setMapData(savedMap ? JSON.parse(savedMap) : INITIAL_MAP_DATA);
@@ -631,50 +630,61 @@ const App: React.FC = () => {
         setMapData(INITIAL_MAP_DATA);
     }
 
-    setIsDataLoaded(true); // Signal that initial data load is complete
-  }, []); // Empty dependency array ensures this runs only once on mount
+    // --- Chat Session Loading and Migration ---
+    const migrated = localStorage.getItem('chat_migration_v1');
+    let allSessions: ChatSession[] = [];
+    if (!migrated) {
+        console.log("Running one-time migration for chat histories...");
+        const migratedSessions: ChatSession[] = [];
+        loadedCharacters.forEach(character => {
+            const oldHistoryKey = `chatHistory_${character.id}`;
+            const oldHistoryJSON = localStorage.getItem(oldHistoryKey);
+            if (oldHistoryJSON) {
+                try {
+                    const messages: Message[] = JSON.parse(oldHistoryJSON);
+                    if (messages && messages.length > 1) { // Only migrate non-empty chats
+                        const newSession: ChatSession = {
+                            id: `session-${character.id}-${Date.now()}`,
+                            characterId: character.id,
+                            messages,
+                            createdAt: messages[0]?.timestamp || Date.now(),
+                            lastMessageTimestamp: messages[messages.length - 1]?.timestamp || Date.now(),
+                            title: `Cuộc trò chuyện cũ`
+                        };
+                        migratedSessions.push(newSession);
+                    }
+                    localStorage.removeItem(oldHistoryKey);
+                } catch (e) {
+                    console.error(`Failed to migrate chat for ${character.name}`, e);
+                }
+            }
+        });
+        allSessions = migratedSessions;
+        localStorage.setItem('chat_migration_v1', 'true');
+        console.log(`Migration complete. Migrated ${migratedSessions.length} chat(s).`);
+    } else {
+        try {
+            const savedSessions = localStorage.getItem('chatSessions');
+            allSessions = savedSessions ? JSON.parse(savedSessions) : [];
+        } catch (error) {
+            console.error("Error loading chat sessions:", error);
+            allSessions = [];
+        }
+    }
+    setChatSessions(allSessions);
+
+    setIsDataLoaded(true);
+  }, []);
 
   // --- Data Persistence ---
+  useEffect(() => { if (isDataLoaded) localStorage.setItem('characters', JSON.stringify(characters)); }, [characters, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded) localStorage.setItem('personas', JSON.stringify(personas)); }, [personas, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded && activePersona) localStorage.setItem('activePersonaId', activePersona.id); else if (isDataLoaded) localStorage.removeItem('activePersonaId'); }, [activePersona, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded) localStorage.setItem('personaProfiles', JSON.stringify(personaProfiles)); }, [personaProfiles, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded) localStorage.setItem('mapData', JSON.stringify(mapData)); }, [mapData, isDataLoaded]);
+  useEffect(() => { if (isDataLoaded) localStorage.setItem('chatSessions', JSON.stringify(chatSessions)); }, [chatSessions, isDataLoaded]);
 
-  // Save Characters whenever they change after initial load
-  useEffect(() => {
-    if (isDataLoaded) {
-      localStorage.setItem('characters', JSON.stringify(characters));
-    }
-  }, [characters, isDataLoaded]);
-
-  // Save Personas whenever they change after initial load
-  useEffect(() => {
-    if (isDataLoaded) {
-      localStorage.setItem('personas', JSON.stringify(personas));
-    }
-  }, [personas, isDataLoaded]);
-
-  // Save Active Persona whenever it changes after initial load
-  useEffect(() => {
-    if (isDataLoaded && activePersona) {
-      localStorage.setItem('activePersonaId', activePersona.id);
-    } else if (isDataLoaded && !activePersona) {
-      localStorage.removeItem('activePersonaId');
-    }
-  }, [activePersona, isDataLoaded]);
-
-  // Save persona profiles to local storage whenever they change after initial load
-  useEffect(() => {
-    if (isDataLoaded) {
-      localStorage.setItem('personaProfiles', JSON.stringify(personaProfiles));
-    }
-  }, [personaProfiles, isDataLoaded]);
-
-  // Save map data whenever it changes after initial load
-  useEffect(() => {
-    if (isDataLoaded) {
-        localStorage.setItem('mapData', JSON.stringify(mapData));
-    }
-  }, [mapData, isDataLoaded]);
-
-
-  const handleStartChat = (character: Character) => {
+  const handleStartChatFlow = (character: Character) => {
     if (!activePersona && personas.length > 0) {
       setActivePersona(personas[0]);
     } else if (personas.length === 0) {
@@ -683,7 +693,59 @@ const App: React.FC = () => {
       return;
     }
     setSelectedCharacter(character);
+    setView('sessionList');
+  };
+
+  const handleSelectSession = (session: ChatSession) => {
+    setSelectedSession(session);
     setView('chat');
+  };
+  
+  const handleCreateNewSession = (character: Character) => {
+    const newSession: ChatSession = {
+      id: `session-${Date.now()}`,
+      characterId: character.id,
+      title: `Trò chuyện mới`,
+      createdAt: Date.now(),
+      lastMessageTimestamp: Date.now(),
+      messages: [{
+          id: `bot-greeting-${character.id}`,
+          text: character.greeting,
+          sender: 'bot',
+          timestamp: Date.now()
+      }]
+    };
+    setChatSessions(prev => [newSession, ...prev]);
+    setSelectedSession(newSession);
+    setView('chat');
+  };
+  
+  const handleDeleteSession = (sessionId: string) => {
+    if (window.confirm("Bạn có chắc chắn muốn xóa cuộc trò chuyện này không? Hành động này không thể hoàn tác.")) {
+        setChatSessions(prev => prev.filter(s => s.id !== sessionId));
+    }
+  };
+  
+  const handleSaveSessionMessages = (sessionId: string, newMessages: Message[]) => {
+      setChatSessions(prev => prev.map(s => {
+          if (s.id === sessionId) {
+              const lastMessage = newMessages[newMessages.length - 1];
+              let newTitle = s.title;
+              if (s.title === 'Trò chuyện mới' && newMessages.length > 2) {
+                  const firstUserMessage = newMessages.find(m => m.sender === 'user');
+                  if (firstUserMessage) {
+                      newTitle = `Về: "${firstUserMessage.text.substring(0, 25)}..."`;
+                  }
+              }
+              return { 
+                  ...s, 
+                  messages: newMessages, 
+                  lastMessageTimestamp: lastMessage?.timestamp || s.lastMessageTimestamp,
+                  title: newTitle
+              };
+          }
+          return s;
+      }));
   };
 
   const handleSaveCharacter = (characterToSave: Character) => {
@@ -692,7 +754,6 @@ const App: React.FC = () => {
       setCharacters(prev => [characterToSave, ...prev]);
     } else {
       setCharacters(prev => prev.map(c => c.id === characterToSave.id ? characterToSave : c));
-      // If the currently selected/viewed character is the one being edited, update them
       if (selectedCharacter?.id === characterToSave.id) {
           setSelectedCharacter(characterToSave);
       }
@@ -700,7 +761,6 @@ const App: React.FC = () => {
           setProfileCharacter(characterToSave);
       }
     }
-    // Don't close the profile view, only the edit modal
     setIsCharacterEditModalOpen(false);
   };
   
@@ -708,7 +768,7 @@ const App: React.FC = () => {
     const isCreating = !personas.some(p => p.id === personaToSave.id);
      if (isCreating) {
       setPersonas(prev => [personaToSave, ...prev]);
-      if (!activePersona) { // If this is the very first persona
+      if (!activePersona) {
           setActivePersona(personaToSave);
       }
     } else {
@@ -725,48 +785,15 @@ const App: React.FC = () => {
     setPersonaProfiles(prev => ({...prev, [key]: profile}));
   };
   
-  const openPersonaCreator = () => {
-    setEditingPersona(null);
-    setIsPersonaEditModalOpen(true);
-  }
-  
-  const openPersonaEditor = (persona: UserPersona) => {
-    setEditingPersona(persona);
-    setIsPersonaEditModalOpen(true);
-  }
-
-  const openCharacterCreator = () => {
-    setEditingCharacter(null);
-    setIsCharacterEditModalOpen(true);
-  }
-  
-  const openCharacterEditor = (character: Character) => {
-    setEditingCharacter(character);
-    setIsCharacterEditModalOpen(true);
-  }
-
-  const handleViewProfile = (character: Character) => {
-      setProfileCharacter(character);
-      setIsProfileOpen(true);
-  }
-  
-  const handleViewRelationship = (character: Character) => {
-    setRelationshipCharacter(character);
-    setIsRelationshipModalOpen(true);
-  };
-
-  const handleNavigateToPersonaManagement = () => {
-    setIsPersonaSwitcherOpen(false);
-    setView('personaManagement');
-  }
-  
-  const handleNavigateToExplore = () => {
-      setView('explore');
-  }
-  
-  const handleNavigateToMap = () => {
-      setView('map');
-  }
+  const openPersonaCreator = () => { setEditingPersona(null); setIsPersonaEditModalOpen(true); }
+  const openPersonaEditor = (persona: UserPersona) => { setEditingPersona(persona); setIsPersonaEditModalOpen(true); }
+  const openCharacterCreator = () => { setEditingCharacter(null); setIsCharacterEditModalOpen(true); }
+  const openCharacterEditor = (character: Character) => { setEditingCharacter(character); setIsCharacterEditModalOpen(true); }
+  const handleViewProfile = (character: Character) => { setProfileCharacter(character); setIsProfileOpen(true); }
+  const handleViewRelationship = (character: Character) => { setRelationshipCharacter(character); setIsRelationshipModalOpen(true); };
+  const handleNavigateToPersonaManagement = () => { setIsPersonaSwitcherOpen(false); setView('personaManagement'); }
+  const handleNavigateToExplore = () => { setView('explore'); }
+  const handleNavigateToMap = () => { setView('map'); }
 
   const handleAffectionChange = (characterId: string, change: number) => {
     setCharacters(prevChars => 
@@ -779,21 +806,6 @@ const App: React.FC = () => {
             return c;
         })
     );
-
-    if (selectedCharacter?.id === characterId) {
-        setSelectedCharacter(prevChar => {
-            if (!prevChar) return null;
-            const newAffection = prevChar.stats.tinhCam + change;
-            const clampedAffection = Math.max(-100, Math.min(500, newAffection));
-            return {
-                ...prevChar,
-                stats: {
-                    ...prevChar.stats,
-                    tinhCam: clampedAffection
-                }
-            };
-        });
-    }
   };
 
   const handleCharacterModelChange = (characterId: string, newModel: string) => {
@@ -801,8 +813,6 @@ const App: React.FC = () => {
         c.id === characterId ? { ...c, model: newModel } : c
     );
     setCharacters(updatedCharacters);
-    
-    // Also update the selected character if they are the one being edited
     if (selectedCharacter?.id === characterId) {
         setSelectedCharacter(prev => prev ? { ...prev, model: newModel } : null);
     }
@@ -811,21 +821,11 @@ const App: React.FC = () => {
   const generateActivityName = async (character: Character): Promise<string> => {
     if (!process.env.API_KEY) return "Lỗi: API Key chưa được thiết lập.";
     if (!activePersona || !mapData) return "Lỗi: Dữ liệu người dùng hoặc bản đồ bị thiếu.";
-
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `
-        BỐI CẢNH: Nhân vật ${character.name} (${character.tagline}) đang ở địa điểm "${mapData.name}", được mô tả là "${mapData.description}". Người dùng, trong vai ${activePersona.name} (${activePersona.tagline}), tiếp cận họ.
-        YÊU CẦU: Dựa trên tính cách của ${character.name} (${character.personality}), hãy đề xuất một tên hoạt động ngắn gọn, hấp dẫn mà hai người có thể làm cùng nhau ngay tại đó.
-        VÍ DỤ: "Khám phá phế tích cổ", "Thảo luận về thế cờ", "Tìm nơi trú mưa", "Săn bắn trong rừng".
-        QUY TẮC: Chỉ trả lời bằng TÊN HOẠT ĐỘNG. Không thêm bất kỳ lời giải thích hay câu chữ nào khác.
-    `;
-    
+    const prompt = `BỐI CẢNH: Nhân vật ${character.name} (${character.tagline}) đang ở địa điểm "${mapData.name}", được mô tả là "${mapData.description}". Người dùng, trong vai ${activePersona.name} (${activePersona.tagline}), tiếp cận họ.\nYÊU CẦU: Dựa trên tính cách của ${character.name} (${character.personality}), hãy đề xuất một tên hoạt động ngắn gọn, hấp dẫn mà hai người có thể làm cùng nhau ngay tại đó.\nVÍ DỤ: "Khám phá phế tích cổ", "Thảo luận về thế cờ", "Tìm nơi trú mưa", "Săn bắn trong rừng".\nQUY TẮC: Chỉ trả lời bằng TÊN HOẠT ĐỘNG. Không thêm bất kỳ lời giải thích hay câu chữ nào khác.`;
     try {
         const modelToUse = character.model === 'default' ? 'gemini-2.5-flash' : (character.model || 'gemini-2.5-flash');
-        const response = await ai.models.generateContent({
-            model: modelToUse,
-            contents: prompt,
-        });
+        const response = await ai.models.generateContent({ model: modelToUse, contents: prompt });
         return response.text.trim();
     } catch (error) {
         console.error("Error generating activity name:", error);
@@ -841,43 +841,45 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch(view) {
       case 'chat':
-        if (!activePersona) {
-            setView('personaManagement'); // Redirect to create persona if none exists
-            return (
-              <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-center p-4">
-                <p className="text-white text-xl mb-4">Bạn cần tạo một Persona để bắt đầu trò chuyện.</p>
-                <button 
-                  onClick={() => setView('personaManagement')} 
-                  className="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-md font-semibold"
-                >
-                  Đến trang quản lý Persona
-                </button>
-              </div>
-            );
+        if (!activePersona || !selectedSession || !selectedCharacter) {
+            setView('chatList');
+            return null;
         }
-        if (selectedCharacter) {
-          const personaProfileKey = `${selectedCharacter.id}_${activePersona.id}`;
-          const activePersonaProfile = personaProfiles[personaProfileKey] || null;
-
-          return <ChatView 
-            character={selectedCharacter} 
-            userPersona={activePersona}
-            personaProfile={activePersonaProfile}
-            onBack={() => setView('chatList')} 
-            onSwitchPersona={() => setIsPersonaSwitcherOpen(true)}
-            onViewProfile={handleViewProfile}
-            onViewRelationship={handleViewRelationship}
-            onAffectionChange={handleAffectionChange}
-            onOpenPersonaProfile={() => setIsPersonaProfileModalOpen(true)}
-            onModelChange={handleCharacterModelChange}
-            onApiKeyError={handleApiKeyError}
-          />;
+        const personaProfileKey = `${selectedCharacter.id}_${activePersona.id}`;
+        const activePersonaProfile = personaProfiles[personaProfileKey] || null;
+        return <ChatView 
+          key={selectedSession.id} // Re-mount component on session change
+          character={selectedCharacter} 
+          userPersona={activePersona}
+          personaProfile={activePersonaProfile}
+          session={selectedSession}
+          onSaveMessages={(newMessages) => handleSaveSessionMessages(selectedSession.id, newMessages)}
+          onBack={() => setView('sessionList')} 
+          onSwitchPersona={() => setIsPersonaSwitcherOpen(true)}
+          onViewProfile={handleViewProfile}
+          onViewRelationship={handleViewRelationship}
+          onAffectionChange={handleAffectionChange}
+          onOpenPersonaProfile={() => setIsPersonaProfileModalOpen(true)}
+          onModelChange={handleCharacterModelChange}
+          onApiKeyError={handleApiKeyError}
+        />;
+      case 'sessionList':
+        if (!selectedCharacter) {
+            setView('chatList');
+            return null;
         }
-        return null; // Should not happen if logic is correct
+        return <SessionList
+            character={selectedCharacter}
+            sessions={chatSessions.filter(s => s.characterId === selectedCharacter.id).sort((a,b) => b.lastMessageTimestamp - a.lastMessageTimestamp)}
+            onSelectSession={handleSelectSession}
+            onCreateNew={() => handleCreateNewSession(selectedCharacter)}
+            onDeleteSession={handleDeleteSession}
+            onBack={() => setView('chatList')}
+        />;
       case 'characterSelection':
         return <CharacterSelection 
           characters={characters} 
-          onSelectCharacter={handleStartChat}
+          onSelectCharacter={handleStartChatFlow}
           onEditCharacter={openCharacterEditor}
           onCreateCharacter={openCharacterCreator}
           onBack={() => setView('chatList')}
@@ -885,7 +887,7 @@ const App: React.FC = () => {
        case 'explore':
           return <Explore
             characters={characters}
-            onSelectCharacter={handleStartChat}
+            onSelectCharacter={handleStartChatFlow}
             onEditCharacter={openCharacterEditor}
             onBack={() => setView('chatList')}
            />;
@@ -902,7 +904,7 @@ const App: React.FC = () => {
                     mapData={mapData}
                     characters={characters}
                     onMapDataChange={setMapData}
-                    onStartChat={handleStartChat}
+                    onStartChat={handleStartChatFlow}
                     onBack={() => setView('chatList')}
                     onGenerateActivity={generateActivityName}
                 />
@@ -911,8 +913,9 @@ const App: React.FC = () => {
       case 'chatList':
       default:
         return <ChatList 
-          characters={characters} 
-          onSelectCharacter={handleStartChat}
+          characters={characters}
+          sessions={chatSessions}
+          onSelectCharacter={handleStartChatFlow}
           onNavigateToCreate={() => setView('characterSelection')}
           onNavigateToProfile={() => setView('personaManagement')}
           onNavigateToExplore={handleNavigateToExplore}
@@ -963,10 +966,10 @@ const App: React.FC = () => {
         onSave={handleSavePersona}
       />
       
-      {activePersona && <PersonaProfileModal
+      {activePersona && selectedCharacter && <PersonaProfileModal
         isOpen={isPersonaProfileModalOpen}
         onClose={() => setIsPersonaProfileModalOpen(false)}
-        initialProfile={selectedCharacter ? personaProfiles[`${selectedCharacter.id}_${activePersona.id}`] : null}
+        initialProfile={personaProfiles[`${selectedCharacter.id}_${activePersona.id}`] || null}
         onSave={(profileData) => {
             if (selectedCharacter && activePersona) {
                 handleSavePersonaProfile(selectedCharacter.id, activePersona.id, profileData);

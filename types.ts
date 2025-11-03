@@ -50,6 +50,15 @@ export interface Message {
   timestamp: number;
 }
 
+export interface ChatSession {
+  id: string;
+  characterId: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+  lastMessageTimestamp: number;
+}
+
 export interface PersonaStats {
   congDuc: number;
   nghiepLuc: number;

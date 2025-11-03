@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Character, UserPersona, Message, PersonaProfile } from '../types';
+import { Character, UserPersona, Message, PersonaProfile, ChatSession } from '../types';
 import { GoogleGenAI, Chat } from '@google/genai';
 import { BackArrowIcon, SendIcon, UsersIcon, HeartIcon, GiftIcon, CloseIcon, TrashIcon, CalendarDaysIcon, UserIcon, RefreshIcon, ClipboardIcon, CheckIcon, SparklesIcon, CpuChipIcon, PlusIcon } from './icons';
 import { createSystemPrompt } from '../services/geminiService';
@@ -10,6 +10,8 @@ interface ChatViewProps {
   character: Character;
   userPersona: UserPersona;
   personaProfile: PersonaProfile | null;
+  session: ChatSession;
+  onSaveMessages: (messages: Message[]) => void;
   onBack: () => void;
   onSwitchPersona: () => void;
   onViewProfile: (character: Character) => void;
@@ -298,7 +300,6 @@ const ActionMenu: React.FC<{
     onGift: () => void;
 }> = ({ onSwitchPersona, onOpenPersonaProfile, onScenario, onEvent, onGift }) => {
     
-    // Fix: Specify that the icon prop is a React.ReactElement that accepts a className prop to resolve type error with React.cloneElement.
     const ActionButton: React.FC<{
         icon: React.ReactElement<{ className?: string }>;
         text: string;
@@ -311,7 +312,7 @@ const ActionMenu: React.FC<{
     );
 
     return (
-        <div className="absolute bottom-full left-4 right-4 mb-2 p-3 bg-gray-800/90 backdrop-blur-sm rounded-lg shadow-lg grid grid-cols-3 gap-3">
+        <div className="absolute bottom-full left-4 right-4 mb-2 p-3 bg-gray-800/90 backdrop-blur-sm rounded-lg shadow-lg grid grid-cols-5 gap-3">
             <ActionButton icon={<UsersIcon />} text="Switch Persona" onClick={onSwitchPersona} />
             <ActionButton icon={<UserIcon />} text="Persona Profile" onClick={onOpenPersonaProfile} />
             <ActionButton icon={<SparklesIcon />} text="Tạo Kịch Bản" onClick={onScenario} />
@@ -322,8 +323,8 @@ const ActionMenu: React.FC<{
 };
 
 
-const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange, onApiKeyError }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, session, onSaveMessages, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange, onApiKeyError }) => {
+  const [messages, setMessages] = useState<Message[]>(session.messages);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -332,16 +333,19 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
   const [isScenarioModalOpen, setIsScenarioModalOpen] = useState(false);
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const chatRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+  
+  useEffect(() => {
+    onSaveMessages(messages);
+  }, [messages, onSaveMessages]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages.length]);
   
   const getNewChatSession = useCallback((messageHistory: Message[]) => {
     if (!process.env.API_KEY) {
@@ -384,55 +388,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
     });
   }, [character, userPersona, personaProfile]);
 
-  // Load messages from local storage or set initial greeting
-  useEffect(() => {
-    const savedMessagesJSON = localStorage.getItem(`chatHistory_${character.id}`);
-    let initialMessages: Message[];
-
-    if (savedMessagesJSON) {
-      try {
-        initialMessages = JSON.parse(savedMessagesJSON);
-        if (!Array.isArray(initialMessages) || initialMessages.length === 0) {
-          throw new Error("Invalid chat history format");
-        }
-      } catch (e) {
-        console.error("Failed to parse saved messages, starting new chat.", e);
-        initialMessages = [{
-          id: `bot-greeting-${character.id}`,
-          text: character.greeting,
-          sender: 'bot',
-          timestamp: Date.now()
-        }];
-      }
-    } else {
-      initialMessages = [{
-        id: `bot-greeting-${character.id}`,
-        text: character.greeting,
-        sender: 'bot',
-        timestamp: Date.now()
-      }];
-    }
-    setMessages(initialMessages);
-  }, [character.id, character.greeting]);
-
-
-  // Save messages to local storage whenever they change
-  useEffect(() => {
-    if (messages.length > 1) { // Avoid saving just the initial greeting
-      localStorage.setItem(`chatHistory_${character.id}`, JSON.stringify(messages));
-    }
-  }, [messages, character.id]);
-  
   const runGeminiStream = async (prompt: string, historyContext: Message[]) => {
     setIsLoading(true);
     const botMessageId = `bot-stream-${Date.now()}`;
     setMessages(prev => [...prev, { id: botMessageId, text: "", sender: 'bot', timestamp: Date.now() }]);
 
     try {
-        const session = getNewChatSession(historyContext);
-        chatRef.current = session;
-
-        const stream = await session.sendMessageStream({ message: prompt });
+        const chatSession = getNewChatSession(historyContext);
+        const stream = await chatSession.sendMessageStream({ message: prompt });
         
         let botResponseText = "";
         for await (const chunk of stream) {
