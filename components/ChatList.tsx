@@ -2,7 +2,7 @@
 import React from 'react';
 import { Character, ChatSession } from '../types';
 // Fix: Import `EyeIcon` to resolve the "Cannot find name 'EyeIcon'" error.
-import { SearchIcon, UserIcon, MapIcon, ChatBubbleIcon, PlusIcon, EyeIcon } from './icons';
+import { SearchIcon, UserIcon, MapIcon, ChatBubbleIcon, PlusIcon, EyeIcon, CpuChipIcon } from './icons';
 
 interface ChatListProps {
   characters: Character[];
@@ -12,14 +12,19 @@ interface ChatListProps {
   onNavigateToProfile: () => void;
   onNavigateToExplore: () => void;
   onNavigateToMap: () => void;
+  isApiKeySet: boolean;
+  onSelectApiKey: () => void;
 }
 
-const ChatListHeader: React.FC = () => (
+const ChatListHeader: React.FC<{isApiKeySet: boolean; onSelectApiKey: () => void;}> = ({ isApiKeySet, onSelectApiKey }) => (
     <header className="p-4 flex items-center justify-between sticky top-0 bg-black z-10">
         <h1 className="text-2xl font-bold">Trò chuyện</h1>
         <div className="flex items-center space-x-2">
             <button className="p-2 rounded-full hover:bg-gray-800">
                 <SearchIcon className="w-6 h-6" />
+            </button>
+            <button onClick={onSelectApiKey} className="p-2 rounded-full hover:bg-gray-800" title={isApiKeySet ? "API Key đã được thiết lập" : "Thiết lập API Key"}>
+                <CpuChipIcon className={`w-6 h-6 ${isApiKeySet ? 'text-green-400' : 'text-red-400'}`} />
             </button>
         </div>
     </header>
@@ -93,13 +98,13 @@ const MainNav: React.FC<{onCreate: () => void, onProfile: () => void, onExplore:
 );
 
 
-const ChatList: React.FC<ChatListProps> = ({ characters, sessions, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap }) => {
+const ChatList: React.FC<ChatListProps> = ({ characters, sessions, onSelectCharacter, onNavigateToCreate, onNavigateToProfile, onNavigateToExplore, onNavigateToMap, isApiKeySet, onSelectApiKey }) => {
   
   const sortedSessions = [...sessions].sort((a,b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
   
   return (
     <div className="flex flex-col h-full bg-black">
-        <ChatListHeader />
+        <ChatListHeader isApiKeySet={isApiKeySet} onSelectApiKey={onSelectApiKey} />
         <main className="flex-grow p-2 overflow-y-auto">
             {sortedSessions.length > 0 ? (
                  <ul>

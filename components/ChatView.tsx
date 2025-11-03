@@ -19,6 +19,9 @@ interface ChatViewProps {
   onAffectionChange: (characterId: string, change: number) => void;
   onOpenPersonaProfile: () => void;
   onModelChange: (characterId: string, newModel: string) => void;
+  isApiKeySet: boolean;
+  onSelectApiKey: () => void;
+  onApiKeyError: () => void;
 }
 
 interface HeartButtonProps {
@@ -322,7 +325,7 @@ const ActionMenu: React.FC<{
 };
 
 
-const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, session, onSaveMessages, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange }) => {
+const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProfile, session, onSaveMessages, onBack, onSwitchPersona, onViewProfile, onViewRelationship, onAffectionChange, onOpenPersonaProfile, onModelChange, isApiKeySet, onSelectApiKey, onApiKeyError }) => {
   const [messages, setMessages] = useState<Message[]>(session.messages);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -348,18 +351,21 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
   }, [messages.length]);
   
   const runGeminiStream = async (prompt: string, historyContext: Message[]) => {
+    if (!isApiKeySet) {
+        setIsLoading(false);
+        setMessages(prev => [...prev, { id: `bot-error-${Date.now()}`, text: "Vui lòng thiết lập API Key của bạn trước khi bắt đầu trò chuyện.", sender: 'bot', timestamp: Date.now() }]);
+        return;
+    }
+
     setIsLoading(true);
     const botMessageId = `bot-stream-${Date.now()}`;
     setMessages(prev => [...prev, { id: botMessageId, text: "", sender: 'bot', timestamp: Date.now() }]);
 
     try {
-        if (!process.env.API_KEY) {
-            throw new Error("API Key not set.");
-        }
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const systemInstruction = createSystemPrompt(character, userPersona, personaProfile);
 
-        const cleanHistory = historyContext.filter(m => m.id !== 'error-key' && !m.id.startsWith('bot-greeting-'));
+        const cleanHistory = historyContext.filter(m => m.id !== 'error-key' && !m.id.startsWith('bot-greeting-') && !m.id.startsWith('bot-error-'));
 
         const processedHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
         for (const msg of cleanHistory) {
@@ -444,7 +450,8 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
     } catch (error) {
         console.error("Error in Gemini Stream:", error);
          if (error instanceof Error && (error.message.includes("API key not valid") || error.message.includes("Requested entity was not found"))) {
-            const errorMessage = "Lỗi xác thực API Key. Vui lòng kiểm tra lại API key của bạn trong cài đặt môi trường (environment variable).";
+            onApiKeyError();
+            const errorMessage = "Lỗi xác thực API Key. Vui lòng chọn lại một API key hợp lệ bằng nút ở góc trên bên phải.";
             setMessages(prev => prev.map(m => m.id === botMessageId ? {...m, text: errorMessage} : m));
         } else {
             const errorMessage = "Xin lỗi, đã có lỗi xảy ra khi giao tiếp với AI. Vui lòng thử lại.";
@@ -570,9 +577,16 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
     if (model.includes('flash')) return 'Flash';
     return 'Mặc định';
   };
+  
+  const handleChipClick = () => {
+    if (!isApiKeySet) {
+        onSelectApiKey();
+    } else {
+        handleModelToggle();
+    }
+  };
 
   const modelName = getModelDisplayName(character.model);
-  
   const models = ['default', 'gemini-2.5-flash', 'gemini-2.5-pro'];
   const currentIndex = models.indexOf(character.model);
   const nextModelName = getModelDisplayName(models[(currentIndex + 1) % models.length]);
@@ -619,9 +633,13 @@ const ChatView: React.FC<ChatViewProps> = ({ character, userPersona, personaProf
                     <h2 className="font-bold text-lg truncate">{character.name}</h2>
                     <p className="text-xs text-gray-400 truncate">{character.tag}</p>
                 </button>
-                 <button onClick={handleModelToggle} className="flex-shrink-0 flex items-center gap-1.5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" title={`Chuyển sang ${nextModelName}`}>
-                    <CpuChipIcon className="w-5 h-5 text-yellow-400" />
-                    <span className="text-xs font-semibold">{modelName}</span>
+                 <button 
+                    onClick={handleChipClick} 
+                    className="flex-shrink-0 flex items-center gap-1.5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" 
+                    title={isApiKeySet ? `Chuyển sang ${nextModelName}` : "Thiết lập API Key"}
+                >
+                    <CpuChipIcon className={`w-5 h-5 ${isApiKeySet ? 'text-yellow-400' : 'text-red-400'}`} />
+                    <span className="text-xs font-semibold">{isApiKeySet ? modelName : 'Setup Key'}</span>
                 </button>
             </header>
             

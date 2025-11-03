@@ -501,6 +501,9 @@ const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({ isOpen, onClo
 const App: React.FC = () => {
   const [view, setView] = useState<'chatList' | 'characterSelection' | 'chat' | 'personaManagement' | 'explore' | 'map' | 'sessionList'>('chatList');
   
+  // State for API Key
+  const [isApiKeySet, setIsApiKeySet] = useState(false);
+
   // State will be populated by useEffect from localStorage
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -530,6 +533,34 @@ const App: React.FC = () => {
   const [relationshipCharacter, setRelationshipCharacter] = useState<Character | null>(null);
 
   const [isPersonaProfileModalOpen, setIsPersonaProfileModalOpen] = useState(false);
+
+  // Check for API key on mount
+  useEffect(() => {
+    const checkApiKey = async () => {
+      // @ts-ignore
+      if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+        setIsApiKeySet(true);
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectApiKey = async () => {
+    // Race condition: hasSelectedApiKey might not be true immediately after.
+    // Assume success and update UI, then let error handling correct if it fails.
+    // @ts-ignore
+    if (window.aistudio) {
+        // @ts-ignore
+        await window.aistudio.openSelectKey();
+        setIsApiKeySet(true);
+    }
+  };
+
+  const handleApiKeyError = () => {
+      setIsApiKeySet(false);
+      alert("Xác thực API Key thất bại. Vui lòng chọn một API Key hợp lệ.");
+  };
+
 
   // Load all data from localStorage on initial mount
   useEffect(() => {
@@ -767,18 +798,23 @@ const App: React.FC = () => {
   };
   
   const generateActivityName = async (character: Character): Promise<string> => {
-    if (!process.env.API_KEY) return "Lỗi: API Key chưa được thiết lập.";
+    if (!isApiKeySet) {
+      return "Vui lòng thiết lập API Key trước.";
+    }
     if (!activePersona || !mapData) return "Lỗi: Dữ liệu người dùng hoặc bản đồ bị thiếu.";
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const prompt = `BỐI CẢNH: Nhân vật ${character.name} (${character.tagline}) đang ở địa điểm "${mapData.name}", được mô tả là "${mapData.description}". Người dùng, trong vai ${activePersona.name} (${activePersona.tagline}), tiếp cận họ.\nYÊU CẦU: Dựa trên tính cách của ${character.name} (${character.personality}), hãy đề xuất một tên hoạt động ngắn gọn, hấp dẫn mà hai người có thể làm cùng nhau ngay tại đó.\nVÍ DỤ: "Khám phá phế tích cổ", "Thảo luận về thế cờ", "Tìm nơi trú mưa", "Săn bắn trong rừng".\nQUY TẮC: Chỉ trả lời bằng TÊN HOẠT ĐỘNG. Không thêm bất kỳ lời giải thích hay câu chữ nào khác.`;
+    
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const modelToUse = character.model === 'default' ? 'gemini-2.5-flash' : (character.model || 'gemini-2.5-flash');
         const response = await ai.models.generateContent({ model: modelToUse, contents: prompt });
         return response.text?.trim() || "Gợi ý thất bại";
     } catch (error) {
         console.error("Error generating activity name:", error);
-        if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-            return "Lỗi xác thực, vui lòng kiểm tra API key trong biến môi trường.";
+        if (error instanceof Error && (error.message.includes("API key not valid") || error.message.includes("Requested entity was not found"))) {
+            handleApiKeyError();
+            return "Lỗi xác thực, vui lòng chọn lại API key.";
         }
         return "Gợi ý thất bại";
     }
@@ -808,6 +844,9 @@ const App: React.FC = () => {
           onAffectionChange={handleAffectionChange}
           onOpenPersonaProfile={() => setIsPersonaProfileModalOpen(true)}
           onModelChange={handleCharacterModelChange}
+          isApiKeySet={isApiKeySet}
+          onSelectApiKey={handleSelectApiKey}
+          onApiKeyError={handleApiKeyError}
         />;
       case 'sessionList':
         if (!selectedCharacter) {
@@ -866,6 +905,8 @@ const App: React.FC = () => {
           onNavigateToProfile={() => setView('personaManagement')}
           onNavigateToExplore={handleNavigateToExplore}
           onNavigateToMap={handleNavigateToMap}
+          isApiKeySet={isApiKeySet}
+          onSelectApiKey={handleSelectApiKey}
         />;
     }
   };
